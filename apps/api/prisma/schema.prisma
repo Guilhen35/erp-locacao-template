@@ -1,0 +1,418 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Acesso ──────────────────────────────────────────────
+
+model User {
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  name               String
+  email              String    @unique
+  passwordHash       String    @map("password_hash")
+  roleId             String    @map("role_id") @db.Uuid
+  isActive           Boolean   @default(true) @map("is_active")
+  mustChangePassword Boolean   @default(true) @map("must_change_password")
+  // Segredo do MFA: será guardado criptografado pela API, nunca em texto puro
+  mfaSecret          String?   @map("mfa_secret")
+  mfaEnabled         Boolean   @default(false) @map("mfa_enabled")
+  // Proteção contra força bruta
+  failedLoginCount   Int       @default(0) @map("failed_login_count")
+  lockedUntil        DateTime? @map("locked_until")
+  lastLoginAt        DateTime? @map("last_login_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  archivedAt         DateTime? @map("archived_at")
+
+  role      Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  sessions  Session[]
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  name        String  @unique
+  description String?
+
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(uuid(7)) @db.Uuid
+  // Ex.: "customers.view", "contracts.create"
+  key         String @unique
+  description String
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Session {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  // Só o hash do token: se o banco vazar, as sessões não podem ser usadas
+  tokenHash  String    @unique @map("token_hash")
+  ipAddress  String?   @map("ip_address")
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// Registro de alterações: só inserção, nunca edição ou exclusão
+model AuditLog {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  before    Json?
+  after     Json?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+enum ClientType {
+  INDIVIDUAL
+  COMPANY
+
+  @@map("client_type")
+}
+
+model Client {
+  id              String     @id @default(uuid(7)) @db.Uuid
+  type            ClientType
+  // CPF ou CNPJ, só números
+  document        String     @unique @db.VarChar(14)
+  name            String     @db.VarChar(200)
+  tradeName       String?    @map("trade_name") @db.VarChar(200)
+  contactName     String?    @map("contact_name") @db.VarChar(200)
+  contactDocument String?    @map("contact_document") @db.VarChar(11)
+  phone           String?    @db.VarChar(20)
+  whatsapp        String     @db.VarChar(20)
+  email           String?    @db.VarChar(254)
+  zipCode         String?    @map("zip_code") @db.VarChar(8)
+  street          String?    @db.VarChar(200)
+  number          String?    @db.VarChar(20)
+  district        String?    @db.VarChar(100)
+  city            String?    @db.VarChar(100)
+  state           String?    @db.Char(2)
+  notes           String?    @db.VarChar(2000)
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+  archivedAt      DateTime?  @map("archived_at")
+
+  contracts Contract[]
+
+  @@index([name])
+  @@index([city])
+  @@map("clients")
+}
+
+enum MachineCategory {
+  SCISSOR
+  ARTICULATED
+  TELESCOPIC
+  MAST
+  OTHER
+
+  @@map("machine_category")
+}
+
+enum PowerSource {
+  ELECTRIC
+  DIESEL
+  HYBRID
+  GAS
+
+  @@map("power_source")
+}
+
+model MachineType {
+  id             String          @id @default(uuid(7)) @db.Uuid
+  name           String          @unique @db.VarChar(100)
+  category       MachineCategory
+  powerSource    PowerSource     @map("power_source")
+  workingHeightM Decimal         @map("working_height_m") @db.Decimal(5, 2)
+  capacityKg     Int             @map("capacity_kg")
+  usage          String?         @db.VarChar(200)
+  dailyPrice     Decimal         @map("daily_price") @db.Decimal(10, 2)
+  weeklyPrice    Decimal?        @map("weekly_price") @db.Decimal(10, 2)
+  monthlyPrice   Decimal?        @map("monthly_price") @db.Decimal(10, 2)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  archivedAt     DateTime?       @map("archived_at")
+
+  machines Machine[]
+
+  @@map("machine_types")
+}
+
+model Machine {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  code          String    @unique @db.VarChar(20)
+  typeId        String    @map("type_id") @db.Uuid
+  manufacturer  String?   @db.VarChar(100)
+  model         String?   @db.VarChar(100)
+  year          Int?
+  serialNumber  String?   @map("serial_number") @db.VarChar(100)
+  assetTag      String?   @map("asset_tag") @db.VarChar(50)
+  hourMeter     Int?      @map("hour_meter")
+  blocked       Boolean   @default(false)
+  blockedReason String?   @map("blocked_reason") @db.VarChar(300)
+  showOnWebsite Boolean   @default(false) @map("show_on_website")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  archivedAt    DateTime? @map("archived_at")
+
+  type          MachineType       @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  photos        MachinePhoto[]
+  contractItems ContractItem[]
+  maintenances  Maintenance[]
+  financing     MachineFinancing?
+
+  @@index([typeId])
+  @@map("machines")
+}
+
+model MachinePhoto {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  machineId  String   @map("machine_id") @db.Uuid
+  // Nome aleatório gerado pela API, nunca o nome do arquivo enviado
+  storageKey String   @unique @map("storage_key") @db.VarChar(100)
+  position   Int
+  width      Int
+  height     Int
+  sizeBytes  Int      @map("size_bytes")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([machineId, position])
+  @@map("machine_photos")
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  FINISHED
+  CANCELLED
+
+  @@map("contract_status")
+}
+
+enum PaymentMethod {
+  PIX
+  BOLETO
+  CARD
+  CASH
+  TRANSFER
+
+  @@map("payment_method")
+}
+
+enum SignatureStatus {
+  PENDING
+  DIGITAL
+  SCANNED
+
+  @@map("signature_status")
+}
+
+model Contract {
+  id              String          @id @default(uuid(7)) @db.Uuid
+  number          Int             @unique @default(autoincrement())
+  clientId        String          @map("client_id") @db.Uuid
+  status          ContractStatus  @default(DRAFT)
+  startDate       DateTime        @map("start_date") @db.Date
+  endDate         DateTime        @map("end_date") @db.Date
+  siteName        String?         @map("site_name") @db.VarChar(200)
+  siteZipCode     String?         @map("site_zip_code") @db.VarChar(8)
+  siteStreet      String?         @map("site_street") @db.VarChar(200)
+  siteNumber      String?         @map("site_number") @db.VarChar(20)
+  siteDistrict    String?         @map("site_district") @db.VarChar(100)
+  siteCity        String?         @map("site_city") @db.VarChar(100)
+  siteState       String?         @map("site_state") @db.Char(2)
+  paymentMethod   PaymentMethod   @default(PIX) @map("payment_method")
+  installments    Int             @default(1)
+  totalAmount     Decimal         @map("total_amount") @db.Decimal(12, 2)
+  notes           String?         @db.VarChar(2000)
+  signatureStatus SignatureStatus @default(PENDING) @map("signature_status")
+  activatedAt     DateTime?       @map("activated_at")
+  finishedAt      DateTime?       @map("finished_at")
+  cancelledAt     DateTime?       @map("cancelled_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  client           Client           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  items            ContractItem[]
+  financialEntries FinancialEntry[]
+
+  @@index([clientId])
+  @@index([status, startDate])
+  @@map("contracts")
+}
+
+model ContractItem {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  contractId String   @map("contract_id") @db.Uuid
+  machineId  String   @map("machine_id") @db.Uuid
+  startDate  DateTime @map("start_date") @db.Date
+  endDate    DateTime @map("end_date") @db.Date
+  days       Int
+  dailyRate  Decimal  @map("daily_rate") @db.Decimal(10, 2)
+  amount     Decimal  @db.Decimal(12, 2)
+  // Só itens de contrato ativo bloqueiam a agenda da máquina
+  reserved   Boolean  @default(false)
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  machine  Machine  @relation(fields: [machineId], references: [id], onDelete: Restrict)
+
+  @@index([machineId, startDate])
+  @@map("contract_items")
+}
+
+enum MaintenanceKind {
+  PREVENTIVE
+  CORRECTIVE
+
+  @@map("maintenance_kind")
+}
+
+enum MaintenanceStatus {
+  OPEN
+  DONE
+
+  @@map("maintenance_status")
+}
+
+model Maintenance {
+  id            String            @id @default(uuid(7)) @db.Uuid
+  machineId     String            @map("machine_id") @db.Uuid
+  kind          MaintenanceKind
+  status        MaintenanceStatus @default(OPEN)
+  date          DateTime          @db.Date
+  hourMeter     Int?              @map("hour_meter")
+  description   String            @db.VarChar(2000)
+  blocksMachine Boolean           @default(true) @map("blocks_machine")
+  supplier      String?           @db.VarChar(200)
+  paymentMethod PaymentMethod?    @map("payment_method")
+  dueDate       DateTime?         @map("due_date") @db.Date
+  paid          Boolean           @default(false)
+  sendToFinance Boolean           @default(true) @map("send_to_finance")
+  totalAmount   Decimal           @map("total_amount") @db.Decimal(12, 2)
+  finishedAt    DateTime?         @map("finished_at")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  machine        Machine           @relation(fields: [machineId], references: [id], onDelete: Restrict)
+  items          MaintenanceItem[]
+  financialEntry FinancialEntry?
+
+  @@index([machineId, date])
+  @@index([status])
+  @@map("maintenances")
+}
+
+model MaintenanceItem {
+  id            String  @id @default(uuid(7)) @db.Uuid
+  maintenanceId String  @map("maintenance_id") @db.Uuid
+  description   String  @db.VarChar(200)
+  quantity      Decimal @db.Decimal(10, 2)
+  unitPrice     Decimal @map("unit_price") @db.Decimal(10, 2)
+  amount        Decimal @db.Decimal(12, 2)
+
+  maintenance Maintenance @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
+
+  @@map("maintenance_items")
+}
+
+enum EntryKind {
+  RECEIVABLE
+  PAYABLE
+
+  @@map("entry_kind")
+}
+
+// Contas a receber (parcelas de contrato) e a pagar (manutenções e despesas)
+model FinancialEntry {
+  id                String         @id @default(uuid(7)) @db.Uuid
+  kind              EntryKind
+  description       String         @db.VarChar(200)
+  supplier          String?        @db.VarChar(200)
+  dueDate           DateTime       @map("due_date") @db.Date
+  amount            Decimal        @db.Decimal(12, 2)
+  paymentMethod     PaymentMethod? @map("payment_method")
+  paidAt            DateTime?      @map("paid_at") @db.Date
+  contractId        String?        @map("contract_id") @db.Uuid
+  installmentNumber Int?           @map("installment_number")
+  installmentCount  Int?           @map("installment_count")
+  maintenanceId     String?        @unique @map("maintenance_id") @db.Uuid
+  financingId       String?        @map("financing_id") @db.Uuid
+  notes             String?        @db.VarChar(1000)
+  cancelledAt       DateTime?      @map("cancelled_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  contract    Contract?         @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  maintenance Maintenance?      @relation(fields: [maintenanceId], references: [id], onDelete: Restrict)
+  financing   MachineFinancing? @relation(fields: [financingId], references: [id], onDelete: Restrict)
+
+  @@unique([contractId, installmentNumber])
+  @@unique([financingId, installmentNumber])
+  @@index([kind, dueDate])
+  @@map("financial_entries")
+}
+
+// Financiamento da máquina: parcelas fixas, geradas em Financeiro → A pagar
+model MachineFinancing {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  machineId         String    @unique @map("machine_id") @db.Uuid
+  lender            String    @db.VarChar(200)
+  installmentAmount Decimal   @map("installment_amount") @db.Decimal(12, 2)
+  installmentCount  Int       @map("installment_count")
+  firstDueDate      DateTime  @map("first_due_date") @db.Date
+  paidBefore        Int       @default(0) @map("paid_before")
+  payoffAmount      Decimal?  @map("payoff_amount") @db.Decimal(12, 2)
+  archivedAt        DateTime? @map("archived_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  machine Machine          @relation(fields: [machineId], references: [id], onDelete: Restrict)
+  entries FinancialEntry[]
+
+  @@map("machine_financings")
+}

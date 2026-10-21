@@ -1,0 +1,10 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+allowBuilds:
+  '@prisma/engines': true
+  prisma: true
+  esbuild: false
+engineStrict: true
+saveExact: true

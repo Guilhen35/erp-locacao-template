@@ -34,6 +34,7 @@ export function DemoModal() {
 
   return (
     <>
+      <AvisoMobile />
       <div className="pointer-events-none fixed bottom-3 left-3 hidden sm:block z-40 rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground shadow-lg">
         Demonstração · dados fictícios
       </div>
@@ -81,5 +82,52 @@ export function DemoModal() {
         </div>
       )}
     </>
+  )
+}
+
+const AVISO_KEY = 'erp_demo_aviso_mobile'
+
+// Aviso para telas pequenas: a versão para celular ainda está em desenvolvimento
+function AvisoMobile() {
+  const [show, setShow] = useState(() => {
+    try {
+      return window.matchMedia('(max-width: 767px)').matches && sessionStorage.getItem(AVISO_KEY) !== '1'
+    } catch {
+      return window.innerWidth < 768
+    }
+  })
+
+  if (!show) return null
+
+  const fechar = () => {
+    try { sessionStorage.setItem(AVISO_KEY, '1') } catch { /* sem storage */ }
+    setShow(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-black/60 p-4 sm:items-center sm:justify-center">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="aviso-mobile-titulo"
+        className="w-full max-w-md rounded-2xl bg-card p-6 text-card-foreground shadow-2xl"
+      >
+        <p className="text-xs font-semibold tracking-widest text-primary uppercase">Versão mobile em desenvolvimento</p>
+        <h2 id="aviso-mobile-titulo" className="mt-2 text-lg font-bold">
+          Melhor experiência no computador
+        </h2>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Este sistema foi pensado para o escritório. A versão para celular está em desenvolvimento, então algumas telas
+          podem ficar mais largas que a tela. Para ver tudo certinho, abra pelo computador.
+        </p>
+        <button
+          type="button"
+          onClick={fechar}
+          className="mt-5 w-full rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          Entendi, continuar mesmo assim
+        </button>
+      </div>
+    </div>
   )
 }
